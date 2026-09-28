@@ -363,6 +363,12 @@ function failureNote(error: unknown): { zh: string; en: string } {
       en: `The model call failed (not enough credits or the key limit was reached${detail ? `: ${detail}` : ""}). ${tailEn}`,
     };
   }
+  if (reason === "region") {
+    return {
+      zh: `模型呼叫失敗（呢個模型喺你所在地區用唔到${detail ? `：${detail}` : ""}）。${tailZh}`,
+      en: `The model call failed (this model is not available in your region${detail ? `: ${detail}` : ""}). ${tailEn}`,
+    };
+  }
   if (reason === "blocked") {
     return {
       zh: `模型呼叫失敗（連線被安全政策擋住，不是金鑰無效${detail ? `：${detail}` : ""}）。${tailZh}`,
@@ -389,13 +395,13 @@ export async function runFollowUp(
   },
   deps?: { complete?: CompleteFn; chat?: FollowChat },
 ): Promise<
-  | { ok: true; zh: string; en: string; searches: SearchHit[]; source: "template" | "openrouter" }
+  | { ok: true; zh: string; en: string; searches: SearchHit[]; source: "template" | "openrouter"; model: string | null }
   | ReturnType<typeof errorBody>
 > {
   const question = input.question.slice(0, 2000);
   if (containsIdentifier(question)) return errorBody("identifiers");
   const grounded = followUpFromRules(question, input.rule);
-  const offline = { ok: true as const, zh: `${OFFLINE_ZH}${grounded.zh}`, en: `${OFFLINE_EN} ${grounded.en}`, searches: grounded.searches, source: "template" as const };
+  const offline = { ok: true as const, zh: `${OFFLINE_ZH}${grounded.zh}`, en: `${OFFLINE_EN} ${grounded.en}`, searches: grounded.searches, source: "template" as const, model: null };
   const canCall = hasOpenRouterKey() || Boolean(deps?.complete) || Boolean(deps?.chat);
   if (!canCall) return offline;
 
@@ -420,16 +426,16 @@ export async function runFollowUp(
   }));
   let lastError: unknown;
 
-  const accept = (zh: string, en: string) =>
+  const accept = (zh: string, en: string, model: string | null) =>
     usableReply(zh, en)
-      ? { ok: true as const, zh, en, searches: grounded.searches, source: "openrouter" as const }
+      ? { ok: true as const, zh, en, searches: grounded.searches, source: "openrouter" as const, model }
       : null;
 
   if (deps?.complete) {
     try {
       const written = await deps.complete({ system: CHAT_SYSTEM, user: userPayload });
       if (written) {
-        const accepted = accept(written.zh, written.en);
+        const accepted = accept(written.zh, written.en, written.model);
         if (accepted) return accepted;
       }
     } catch (error) {
@@ -451,14 +457,14 @@ export async function runFollowUp(
       });
       const data = result.data as { zh?: unknown; en?: unknown };
       if (typeof data.zh === "string" && typeof data.en === "string") {
-        const accepted = accept(data.zh, data.en);
+        const accepted = accept(data.zh, data.en, result.model);
         if (accepted) return accepted;
       }
     } catch (error) {
       lastError = error;
       if (error instanceof OpenRouterError && (error.code === "unauthorized" || error.code === "rate_limit" || error.code === "missing_key")) {
         const note = failureNote(error);
-        return { ok: true, zh: `${note.zh}${grounded.zh}`, en: `${note.en} ${grounded.en}`, searches: grounded.searches, source: "template" };
+        return { ok: true, zh: `${note.zh}${grounded.zh}`, en: `${note.en} ${grounded.en}`, searches: grounded.searches, source: "template", model: null };
       }
     }
   }
@@ -480,7 +486,7 @@ export async function runFollowUp(
           });
       const parsed = splitBilingualReply(plain.content);
       if (parsed) {
-        const accepted = accept(parsed.zh, parsed.en);
+        const accepted = accept(parsed.zh, parsed.en, plain.model);
         if (accepted) return accepted;
       }
     } catch (error) {
@@ -489,5 +495,5 @@ export async function runFollowUp(
   }
 
   const note = failureNote(lastError);
-  return { ok: true, zh: `${note.zh}${grounded.zh}`, en: `${note.en} ${grounded.en}`, searches: grounded.searches, source: "template" };
+  return { ok: true, zh: `${note.zh}${grounded.zh}`, en: `${note.en} ${grounded.en}`, searches: grounded.searches, source: "template", model: null };
 }

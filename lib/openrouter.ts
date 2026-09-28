@@ -76,10 +76,27 @@ export function hasOpenRouterKey(): boolean {
   return openRouterKeyStatus().present;
 }
 
+export const REGION_FALLBACK_MODELS = ["qwen/qwen3.6-flash", "deepseek/deepseek-v4.1-flash"] as const;
+
 export function modelNames(): { text: string; vision: string } {
   const text = process.env.OPENROUTER_MODEL?.trim() || "google/gemini-2.5-flash";
   const vision = process.env.OPENROUTER_VISION_MODEL?.trim() || text;
   return { text, vision };
+}
+
+export function modelFallbackChain(primary: string): string[] {
+  const configured = (process.env.OPENROUTER_FALLBACK_MODELS ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const chain: string[] = [];
+  for (const id of [primary, ...configured, ...REGION_FALLBACK_MODELS]) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    chain.push(id);
+  }
+  return chain;
 }
 
 export function openRouterHeaders(): Record<string, string> {
@@ -131,6 +148,12 @@ export function classifyOpenRouterFailure(status: number, body: string): {
   if (status === 402 || /insufficient credits|payment required/.test(lower)) {
     return { code: "provider", message: "credits", detail: detail || "402", retryWithCurl: false };
   }
+  if (/not available in your region|unsupported regions/.test(lower)) {
+    return { code: "provider", message: "region", detail: detail || "region", retryWithCurl: false };
+  }
+  if (status === 404 || /no endpoints found|is not a valid model|model not found/.test(lower)) {
+    return { code: "provider", message: "missing_model", detail: detail || "404", retryWithCurl: false };
+  }
   if (status === 403 && blocked) {
     return { code: "provider", message: "blocked", detail: detail || "403", retryWithCurl: true };
   }
@@ -144,6 +167,12 @@ export function classifyOpenRouterFailure(status: number, body: string): {
   return { code: "provider", message: `http ${status}`, detail, retryWithCurl: false };
 }
 
+const regionBlockedModels = new Set<string>();
+
+function shouldTryNextModel(failure: { code: OpenRouterError["code"]; message: string }): boolean {
+  return failure.message === "region" || failure.message === "missing_model" || failure.code === "no_image_support";
+}
+
 export async function openrouterChat(options: {
   messages: ChatMessage[];
   model?: string;
@@ -154,14 +183,29 @@ export async function openrouterChat(options: {
   if (!hasOpenRouterKey()) {
     throw new OpenRouterError("missing_key", "missing key");
   }
-  const body: Record<string, unknown> = {
-    model: options.model || modelNames().text,
-    messages: options.messages,
-    temperature: options.temperature ?? 0,
-    max_tokens: options.maxTokens ?? 1800,
-  };
-  if (options.responseFormat) body.response_format = options.responseFormat;
+  const chain = modelFallbackChain(options.model || modelNames().text).filter((id) => !regionBlockedModels.has(id));
+  if (!chain.length) {
+    throw new OpenRouterError("provider", "region", "This model is not available in your region.");
+  }
+  let last: OpenRouterError | null = null;
+  for (const model of chain) {
+    const body: Record<string, unknown> = {
+      model,
+      messages: options.messages,
+      temperature: options.temperature ?? 0,
+      max_tokens: options.maxTokens ?? 1800,
+    };
+    if (options.responseFormat) body.response_format = options.responseFormat;
+    const result = await postChat(body);
+    if (result.ok) return result.value;
+    last = result.error;
+    if (result.error.message === "region") regionBlockedModels.add(model);
+    if (!shouldTryNextModel(result.error)) break;
+  }
+  throw last ?? new OpenRouterError("provider", "empty");
+}
 
+async function postChat(body: Record<string, unknown>): Promise<{ ok: true; value: { content: string; model: string } } | { ok: false; error: OpenRouterError }> {
   let status: number;
   let text: string;
   try {
@@ -173,7 +217,7 @@ export async function openrouterChat(options: {
     status = response.status;
     text = await response.text();
   } catch {
-    throw new OpenRouterError("provider", "network");
+    return { ok: false, error: new OpenRouterError("provider", "network") };
   }
 
   if (!statusOk(status) && classifyOpenRouterFailure(status, text).retryWithCurl) {
@@ -186,18 +230,18 @@ export async function openrouterChat(options: {
 
   if (!statusOk(status)) {
     const failure = classifyOpenRouterFailure(status, text);
-    throw new OpenRouterError(failure.code, failure.message, failure.detail);
+    return { ok: false, error: new OpenRouterError(failure.code, failure.message, failure.detail) };
   }
 
   let parsed: { choices?: { message?: { content?: unknown } }[]; model?: string };
   try {
     parsed = JSON.parse(text) as typeof parsed;
   } catch {
-    throw new OpenRouterError("bad_response", "not json");
+    return { ok: false, error: new OpenRouterError("bad_response", "not json") };
   }
   const content = messageText(parsed.choices?.[0]?.message?.content);
-  if (!content.trim()) throw new OpenRouterError("bad_response", "empty");
-  return { content, model: parsed.model || String(body.model) };
+  if (!content.trim()) return { ok: false, error: new OpenRouterError("bad_response", "empty") };
+  return { ok: true, value: { content, model: parsed.model || String(body.model) } };
 }
 
 function statusOk(status: number): boolean {
@@ -265,6 +309,7 @@ export async function openrouterJson(options: {
       return { data: parseModelJson(result.content), model: result.model };
     } catch (error) {
       last = error;
+      if (error instanceof OpenRouterError && error.message === "region") throw error;
       if (error instanceof OpenRouterError && error.code !== "bad_response" && error.code !== "provider") {
         throw error;
       }

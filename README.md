@@ -45,7 +45,9 @@ All model calls go through `lib/openrouter.ts` to `https://openrouter.ai/api/v1/
 
 ### Switch models
 
-Change `OPENROUTER_MODEL` and restart. The vision step uses `OPENROUTER_VISION_MODEL` when that is set, otherwise the same model. The model must accept `image_url` parts (for example `google/gemini-2.5-flash` or `openai/gpt-4o`). If a model cannot read images, the page says so in Chinese and English.
+Change `OPENROUTER_MODEL` and restart. The vision step uses `OPENROUTER_VISION_MODEL` when that is set, otherwise the same model. The model must accept `image_url` parts. If a model cannot read images, the page says so in Chinese and English.
+
+The call is `POST https://openrouter.ai/api/v1/chat/completions` with `model` set to `OPENROUTER_MODEL` (default `google/gemini-2.5-flash`). A reply of `This model is not available in your region` means that request reached OpenRouter and the upstream provider refused the model for this network. Google, OpenAI, and Anthropic often do that from Hong Kong. The server then calls `qwen/qwen3.6-flash`, then `deepseek/deepseek-v4.1-flash`. Both accept images. Optional `OPENROUTER_FALLBACK_MODELS` is a comma-separated list tried before those two. Set `OPENROUTER_MODEL=qwen/qwen3.6-flash` to skip the blocked model entirely.
 
 The first call asks for JSON schema `hb_pattern_extraction`. If that model rejects `json_schema`, the server retries with JSON object mode and then checks the shape. Peaks that fail the check are dropped, not guessed.
 

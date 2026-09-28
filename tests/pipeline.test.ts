@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { runFollowUp, runInterpretation } from "../lib/pipeline";
-import { classifyOpenRouterFailure, keyFromEnvText, normalizeOpenRouterKey, openRouterHeaders } from "../lib/openrouter";
+import { classifyOpenRouterFailure, keyFromEnvText, modelFallbackChain, normalizeOpenRouterKey, openRouterHeaders } from "../lib/openrouter";
 import type { Extraction } from "../lib/types";
 
 const flags = {
@@ -220,4 +220,16 @@ test("a guardrail 403 is not called a rejected key", () => {
   assert.equal(policy.code, "provider");
   assert.equal(policy.message, "blocked");
   assert.equal(policy.retryWithCurl, true);
+  const region = classifyOpenRouterFailure(403, JSON.stringify({ error: { message: "This model is not available in your region.", code: 403 } }));
+  assert.equal(region.message, "region");
+  assert.equal(region.code, "provider");
+  assert.equal(region.retryWithCurl, false);
+  const previousFallbacks = process.env.OPENROUTER_FALLBACK_MODELS;
+  delete process.env.OPENROUTER_FALLBACK_MODELS;
+  assert.deepEqual(modelFallbackChain("google/gemini-2.5-flash"), [
+    "google/gemini-2.5-flash",
+    "qwen/qwen3.6-flash",
+    "deepseek/deepseek-v4.1-flash",
+  ]);
+  if (previousFallbacks) process.env.OPENROUTER_FALLBACK_MODELS = previousFallbacks;
 });

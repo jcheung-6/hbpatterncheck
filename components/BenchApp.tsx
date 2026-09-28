@@ -14,7 +14,7 @@ type LocalImage = { name: string; url: string; dataUrl: string };
 type Turn =
   | { id: string; kind: "user"; text: string; images: { name: string; url: string }[] }
   | { id: string; kind: "result"; payload: InterpretOk; teaching?: { zh: string; en: string } }
-  | { id: string; kind: "note"; zh: string; en: string; searches: SearchHit[]; source: "template" | "openrouter" }
+  | { id: string; kind: "note"; zh: string; en: string; searches: SearchHit[]; source: "template" | "openrouter"; model: string | null }
   | { id: string; kind: "error"; zh: string; en: string };
 
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -52,7 +52,7 @@ export function BenchApp() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState("");
-  const [llm, setLlm] = useState<{ llm: boolean; model: string; conflict: boolean } | null>(null);
+  const [llm, setLlm] = useState<{ llm: boolean; model: string; conflict: boolean; fallbacks: string[] } | null>(null);
   const t = copy[locale];
 
   useEffect(() => {
@@ -63,9 +63,14 @@ export function BenchApp() {
   useEffect(() => {
     void fetch("/api/status")
       .then((response) => response.json())
-      .then((body: { llm?: unknown; model?: unknown; key_conflict?: unknown }) => {
+      .then((body: { llm?: unknown; model?: unknown; key_conflict?: unknown; fallbacks?: unknown }) => {
         if (typeof body.llm === "boolean" && typeof body.model === "string") {
-          setLlm({ llm: body.llm, model: body.model, conflict: body.key_conflict === true });
+          setLlm({
+            llm: body.llm,
+            model: body.model,
+            conflict: body.key_conflict === true,
+            fallbacks: Array.isArray(body.fallbacks) ? body.fallbacks.filter((item): item is string => typeof item === "string") : [],
+          });
         }
       })
       .catch(() => setLlm(null));
@@ -165,7 +170,7 @@ export function BenchApp() {
           body: JSON.stringify({ question: text, history, rule: lastRule }),
         });
         const body = (await response.json()) as
-          | { ok: true; zh: string; en: string; searches: SearchHit[]; source?: "template" | "openrouter" }
+          | { ok: true; zh: string; en: string; searches: SearchHit[]; source?: "template" | "openrouter"; model?: string | null }
           | { ok: false; error: { zh: string; en: string } };
         if (!body.ok) {
           setTurns((current) => [...current, { id: uid(), kind: "error", zh: body.error.zh, en: body.error.en }]);
@@ -179,6 +184,7 @@ export function BenchApp() {
               en: body.en,
               searches: body.searches,
               source: body.source === "openrouter" ? "openrouter" : "template",
+              model: typeof body.model === "string" ? body.model : null,
             },
           ]);
         }
@@ -236,7 +242,10 @@ export function BenchApp() {
         </div>
         <div className="lang" role="group" aria-label={t.language}>
           {llm ? (
-            <span className={llm.llm ? "pill on" : "pill off"}>
+            <span
+              className={llm.llm ? "pill on" : "pill off"}
+              title={llm.fallbacks.length ? `${llm.model}. ${t.llmFallback} ${llm.fallbacks.join(", ")}` : llm.model}
+            >
               {llm.llm ? `${t.llmOn} · ${llm.model}` : t.llmOff}
             </span>
           ) : null}
@@ -287,7 +296,9 @@ export function BenchApp() {
               }
               return (
                 <div className="bubble" key={turn.id}>
-                  <p className="meta">{turn.source === "openrouter" ? t.replyModel : t.replyTemplate}</p>
+                  <p className="meta">
+                    {turn.source === "openrouter" ? `${t.replyModel}${turn.model ? ` · ${turn.model}` : ""}` : t.replyTemplate}
+                  </p>
                   <p>{turn.zh}</p>
                   <p className="en">{turn.en}</p>
                   {turn.searches.length ? (
