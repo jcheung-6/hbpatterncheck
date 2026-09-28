@@ -1,9 +1,17 @@
+import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 export class OpenRouterError extends Error {
   code: "missing_key" | "rate_limit" | "no_image_support" | "unauthorized" | "provider" | "bad_response";
+  detail: string;
 
-  constructor(code: OpenRouterError["code"], message: string) {
+  constructor(code: OpenRouterError["code"], message: string, detail = "") {
     super(message);
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -16,8 +24,56 @@ export type ChatMessage = {
   content: ChatContent;
 };
 
+export function normalizeOpenRouterKey(raw: string): string {
+  let key = raw.replace(/^\uFEFF/, "").trim();
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    key = key.slice(1, -1).trim();
+  }
+  key = key.replace(/^Bearer\s+/i, "");
+  key = key.replace(/\s+/g, "");
+  return key;
+}
+
+export function keyFromEnvText(text: string): string {
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const match = trimmed.match(/^(?:export\s+)?OPENROUTER_API_KEY\s*=\s*(.*)$/);
+    if (!match) continue;
+    const key = normalizeOpenRouterKey(match[1]);
+    if (key) return key;
+  }
+  return "";
+}
+
+function keyFromEnvFiles(): string {
+  for (const name of [".env.local", ".env"]) {
+    try {
+      const text = readFileSync(path.join(process.cwd(), name), "utf8");
+      const key = keyFromEnvText(text);
+      if (key) return key;
+    } catch {
+      /* file missing */
+    }
+  }
+  return "";
+}
+
+export function openRouterKeyStatus(): { present: boolean; conflict: boolean } {
+  const fromFile = keyFromEnvFiles();
+  const fromProcess = normalizeOpenRouterKey(process.env.OPENROUTER_API_KEY ?? "");
+  return {
+    present: Boolean(fromFile || fromProcess),
+    conflict: Boolean(fromFile && fromProcess && fromFile !== fromProcess),
+  };
+}
+
+export function openRouterApiKey(): string {
+  return keyFromEnvFiles() || normalizeOpenRouterKey(process.env.OPENROUTER_API_KEY ?? "");
+}
+
 export function hasOpenRouterKey(): boolean {
-  return Boolean(process.env.OPENROUTER_API_KEY?.trim());
+  return openRouterKeyStatus().present;
 }
 
 export function modelNames(): { text: string; vision: string } {
@@ -27,12 +83,65 @@ export function modelNames(): { text: string; vision: string } {
 }
 
 export function openRouterHeaders(): Record<string, string> {
+  const title = process.env.OPENROUTER_APP_TITLE?.trim() || "Hb Pattern Bench Chat";
   return {
-    Authorization: `Bearer ${process.env.OPENROUTER_API_KEY ?? ""}`,
+    Authorization: `Bearer ${openRouterApiKey()}`,
     "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER?.trim() || "http://localhost:3000",
-    "X-Title": process.env.OPENROUTER_APP_TITLE?.trim() || "Hb Pattern Bench Chat",
+    "X-Title": title,
+    "X-OpenRouter-Title": title,
     "Content-Type": "application/json",
+    "User-Agent": "HbPatternBench/0.1",
   };
+}
+
+export function providerMessage(body: string): string {
+  const trimmed = body.trim();
+  try {
+    const parsed = JSON.parse(trimmed) as { error?: { message?: unknown } | string };
+    const message = typeof parsed.error === "string" ? parsed.error : parsed.error?.message;
+    if (typeof message === "string" && message.trim()) return sanitizeProviderText(message);
+  } catch {
+    /* HTML or plain text */
+  }
+  const text = trimmed.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return sanitizeProviderText(text.slice(0, 180));
+}
+
+function sanitizeProviderText(text: string): string {
+  return text
+    .replace(/sk-or-[A-Za-z0-9_-]+/gi, "[key]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+}
+
+export function classifyOpenRouterFailure(status: number, body: string): {
+  code: OpenRouterError["code"];
+  message: string;
+  detail: string;
+  retryWithCurl: boolean;
+} {
+  const detail = providerMessage(body);
+  const lower = `${detail} ${body}`.toLowerCase();
+  const invalidKey = /invalid api key|user not found|key revoked|key disabled|invalid credentials/.test(lower);
+  const blocked = /security policy|cloudflare|attention required|just a moment/.test(lower);
+  if (status === 401 || invalidKey) {
+    return { code: "unauthorized", message: "auth", detail: detail || "401", retryWithCurl: status === 401 && !invalidKey };
+  }
+  if (status === 402 || /insufficient credits|payment required/.test(lower)) {
+    return { code: "provider", message: "credits", detail: detail || "402", retryWithCurl: false };
+  }
+  if (status === 403 && blocked) {
+    return { code: "provider", message: "blocked", detail: detail || "403", retryWithCurl: true };
+  }
+  if (status === 403) {
+    return { code: "provider", message: "forbidden", detail: detail || "403", retryWithCurl: !/request blocked|guardrail|moderation/.test(lower) };
+  }
+  if (status === 429) return { code: "rate_limit", message: "rate", detail: detail || "429", retryWithCurl: false };
+  if (lower.includes("image") || lower.includes("vision") || lower.includes("multimodal") || lower.includes("image_url")) {
+    return { code: "no_image_support", message: "vision", detail: detail || "vision", retryWithCurl: false };
+  }
+  return { code: "provider", message: `http ${status}`, detail, retryWithCurl: false };
 }
 
 export async function openrouterChat(options: {
@@ -53,20 +162,31 @@ export async function openrouterChat(options: {
   };
   if (options.responseFormat) body.response_format = options.responseFormat;
 
-  let response: Response;
+  let status: number;
+  let text: string;
   try {
-    response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: openRouterHeaders(),
       body: JSON.stringify(body),
     });
+    status = response.status;
+    text = await response.text();
   } catch {
     throw new OpenRouterError("provider", "network");
   }
 
-  const text = await response.text();
-  if (!response.ok) {
-    throw mapHttpError(response.status, text);
+  if (!statusOk(status) && classifyOpenRouterFailure(status, text).retryWithCurl) {
+    const retried = await curlChat(JSON.stringify(body));
+    if (retried) {
+      status = retried.status;
+      text = retried.text;
+    }
+  }
+
+  if (!statusOk(status)) {
+    const failure = classifyOpenRouterFailure(status, text);
+    throw new OpenRouterError(failure.code, failure.message, failure.detail);
   }
 
   let parsed: { choices?: { message?: { content?: unknown } }[]; model?: string };
@@ -78,6 +198,53 @@ export async function openrouterChat(options: {
   const content = messageText(parsed.choices?.[0]?.message?.content);
   if (!content.trim()) throw new OpenRouterError("bad_response", "empty");
   return { content, model: parsed.model || String(body.model) };
+}
+
+function statusOk(status: number): boolean {
+  return status >= 200 && status < 300;
+}
+
+async function curlChat(payload: string): Promise<{ status: number; text: string } | null> {
+  const dir = await mkdtemp(path.join(tmpdir(), "hb-or-"));
+  const bodyPath = path.join(dir, "body.json");
+  const cfgPath = path.join(dir, "curl.cfg");
+  try {
+    await writeFile(bodyPath, payload, { mode: 0o600 });
+    const headers = Object.entries(openRouterHeaders())
+      .map(([name, value]) => `header = "${name}: ${value.replace(/[\r\n"]/g, "")}"`)
+      .join("\n");
+    await writeFile(cfgPath, `${headers}\ndata-binary = "@${bodyPath}"\n`, { mode: 0o600 });
+    const stdout = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        "curl",
+        ["--config", cfgPath, "--max-time", "90", "-sS", "-X", "POST", "-w", "\n%{http_code}", "https://openrouter.ai/api/v1/chat/completions"],
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+      let out = "";
+      let err = "";
+      child.stdout.on("data", (chunk) => {
+        out += String(chunk);
+      });
+      child.stderr.on("data", (chunk) => {
+        err += String(chunk);
+      });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code !== 0 && !out) reject(new Error(err.slice(0, 200) || "curl"));
+        else resolve(out);
+      });
+    });
+    const trimmed = stdout.replace(/\s*$/, "");
+    const breakAt = trimmed.lastIndexOf("\n");
+    if (breakAt < 0) return null;
+    const status = Number(trimmed.slice(breakAt + 1));
+    if (!Number.isInteger(status)) return null;
+    return { status, text: trimmed.slice(0, breakAt) };
+  } catch {
+    return null;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 export async function openrouterJson(options: {
@@ -127,19 +294,4 @@ function messageText(content: unknown): string {
       .join("\n");
   }
   return "";
-}
-
-function mapHttpError(status: number, body: string): OpenRouterError {
-  const lower = body.toLowerCase();
-  if (status === 401 || status === 403) return new OpenRouterError("unauthorized", "auth");
-  if (status === 429) return new OpenRouterError("rate_limit", "rate");
-  if (
-    lower.includes("image") ||
-    lower.includes("vision") ||
-    lower.includes("multimodal") ||
-    lower.includes("image_url")
-  ) {
-    return new OpenRouterError("no_image_support", "vision");
-  }
-  return new OpenRouterError("provider", `http ${status}`);
 }

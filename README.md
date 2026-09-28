@@ -37,7 +37,9 @@ OPENROUTER_MODEL=google/gemini-2.5-flash
 OPENROUTER_VISION_MODEL=
 ```
 
-3. Restart `npm run dev`.
+3. Restart `npm run dev` from the `hbpatterncheck` folder. No quotes around the key, and no `Bearer` prefix.
+
+The server reads `OPENROUTER_API_KEY` from `.env.local` when that line is set, even if the shell also exported a key. A header note appears when those two values differ. Hidden spaces and a trailing `Bearer` are stripped before the request. A Python check of `GET /api/v1/key` can still succeed when chat is blocked: HTTP 403 is not treated as a bad key unless OpenRouter says the key is invalid. The reply then includes OpenRouter’s own sentence.
 
 All model calls go through `lib/openrouter.ts` to `https://openrouter.ai/api/v1/chat/completions`, with `Authorization`, `HTTP-Referer`, and `X-Title: Hb Pattern Bench Chat`. The browser never sees the key.
 

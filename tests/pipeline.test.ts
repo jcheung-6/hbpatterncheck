@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { runFollowUp, runInterpretation } from "../lib/pipeline";
-import { openRouterHeaders } from "../lib/openrouter";
+import { classifyOpenRouterFailure, keyFromEnvText, normalizeOpenRouterKey, openRouterHeaders } from "../lib/openrouter";
 import type { Extraction } from "../lib/types";
 
 const flags = {
@@ -190,12 +190,34 @@ test("a failed JSON follow-up falls back to plain text, and a total failure is l
 
 test("OpenRouter headers stay server-side and name the app", () => {
   const previous = process.env.OPENROUTER_API_KEY;
-  process.env.OPENROUTER_API_KEY = "test-key";
+  process.env.OPENROUTER_API_KEY = '  "Bearer test-key"\r\n';
   process.env.OPENROUTER_APP_TITLE = "Hb Pattern Bench Chat";
   const headers = openRouterHeaders();
   assert.equal(headers.Authorization, "Bearer test-key");
   assert.equal(headers["X-Title"], "Hb Pattern Bench Chat");
+  assert.equal(headers["X-OpenRouter-Title"], "Hb Pattern Bench Chat");
   assert.ok(headers["HTTP-Referer"]);
+  assert.equal(normalizeOpenRouterKey(' "Bearer sk-or-v1-abc" \n'), "sk-or-v1-abc");
+  assert.equal(keyFromEnvText("# comment\nexport OPENROUTER_API_KEY='sk-or-v1-file'\n"), "sk-or-v1-file");
   if (previous) process.env.OPENROUTER_API_KEY = previous;
   else delete process.env.OPENROUTER_API_KEY;
+});
+
+test("a guardrail 403 is not called a rejected key", () => {
+  const guard = classifyOpenRouterFailure(
+    403,
+    JSON.stringify({ error: { message: "Request blocked: prompt injection patterns detected", code: 403 } }),
+  );
+  assert.notEqual(guard.code, "unauthorized");
+  assert.match(guard.detail, /prompt injection/);
+  assert.equal(guard.retryWithCurl, false);
+  const auth = classifyOpenRouterFailure(401, JSON.stringify({ error: { message: "User not found", code: 401 } }));
+  assert.equal(auth.code, "unauthorized");
+  assert.equal(auth.retryWithCurl, false);
+  const missing = classifyOpenRouterFailure(401, JSON.stringify({ error: { message: "No cookie auth credentials found", code: 401 } }));
+  assert.equal(missing.retryWithCurl, true);
+  const policy = classifyOpenRouterFailure(403, "<html>Access denied by security policy</html>");
+  assert.equal(policy.code, "provider");
+  assert.equal(policy.message, "blocked");
+  assert.equal(policy.retryWithCurl, true);
 });

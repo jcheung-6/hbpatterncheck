@@ -52,7 +52,7 @@ export function BenchApp() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState("");
-  const [llm, setLlm] = useState<{ llm: boolean; model: string } | null>(null);
+  const [llm, setLlm] = useState<{ llm: boolean; model: string; conflict: boolean } | null>(null);
   const t = copy[locale];
 
   useEffect(() => {
@@ -63,9 +63,9 @@ export function BenchApp() {
   useEffect(() => {
     void fetch("/api/status")
       .then((response) => response.json())
-      .then((body: { llm?: unknown; model?: unknown }) => {
+      .then((body: { llm?: unknown; model?: unknown; key_conflict?: unknown }) => {
         if (typeof body.llm === "boolean" && typeof body.model === "string") {
-          setLlm({ llm: body.llm, model: body.model });
+          setLlm({ llm: body.llm, model: body.model, conflict: body.key_conflict === true });
         }
       })
       .catch(() => setLlm(null));
@@ -240,6 +240,7 @@ export function BenchApp() {
               {llm.llm ? `${t.llmOn} · ${llm.model}` : t.llmOff}
             </span>
           ) : null}
+          {llm?.conflict ? <span className="pill off">{t.llmConflict}</span> : null}
           <button type="button" aria-pressed={locale === "zh"} onClick={() => setLocale("zh")}>
             繁中
           </button>

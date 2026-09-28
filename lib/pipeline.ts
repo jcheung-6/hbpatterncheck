@@ -152,7 +152,18 @@ export async function runInterpretation(
         source = "openrouter";
       }
     } catch (error) {
-      if (error instanceof OpenRouterError) return errorBody(error.code === "bad_response" ? "provider" : error.code);
+      if (error instanceof OpenRouterError) {
+        const body = errorBody(error.code === "bad_response" ? "provider" : error.code);
+        if (!error.detail) return body;
+        return {
+          ok: false,
+          error: {
+            ...body.error,
+            zh: `${body.error.zh} ${error.detail}`,
+            en: `${body.error.en} ${error.detail}`,
+          },
+        };
+      }
       return errorBody("provider");
     }
   } else if (table.length >= 1) {
@@ -330,21 +341,43 @@ function splitBilingualReply(content: string): { zh: string; en: string } | null
 
 function failureNote(error: unknown): { zh: string; en: string } {
   const code = error instanceof OpenRouterError ? error.code : "";
+  const detail = error instanceof OpenRouterError ? error.detail : "";
+  const reason = error instanceof OpenRouterError ? error.message : "";
+  const tailZh = "以下係離線知識庫，不是模型回覆。";
+  const tailEn = "The notes below are the offline knowledge base, not a model reply.";
   if (code === "unauthorized") {
     return {
-      zh: "模型呼叫失敗（金鑰被拒絕）。以下係離線知識庫。",
-      en: "The model call failed (the key was rejected). Offline knowledge-base notes follow.",
+      zh: `模型呼叫失敗（金鑰被拒絕${detail ? `：${detail}` : ""}）。請核對 .env.local 嘅 OPENROUTER_API_KEY，儲存後重新執行 npm run dev。${tailZh}`,
+      en: `The model call failed (the key was rejected${detail ? `: ${detail}` : ""}). Check OPENROUTER_API_KEY in .env.local, save, and restart npm run dev. ${tailEn}`,
     };
   }
   if (code === "rate_limit") {
     return {
-      zh: "模型呼叫失敗（速率限制）。以下係離線知識庫。",
-      en: "The model call failed (rate limit). Offline knowledge-base notes follow.",
+      zh: `模型呼叫失敗（速率限制${detail ? `：${detail}` : ""}）。${tailZh}`,
+      en: `The model call failed (rate limit${detail ? `: ${detail}` : ""}). ${tailEn}`,
+    };
+  }
+  if (reason === "credits") {
+    return {
+      zh: `模型呼叫失敗（餘額或金鑰限額不足${detail ? `：${detail}` : ""}）。${tailZh}`,
+      en: `The model call failed (not enough credits or the key limit was reached${detail ? `: ${detail}` : ""}). ${tailEn}`,
+    };
+  }
+  if (reason === "blocked") {
+    return {
+      zh: `模型呼叫失敗（連線被安全政策擋住，不是金鑰無效${detail ? `：${detail}` : ""}）。${tailZh}`,
+      en: `The model call failed (a security policy blocked the connection; the key itself was not rejected${detail ? `: ${detail}` : ""}). ${tailEn}`,
+    };
+  }
+  if (detail) {
+    return {
+      zh: `模型呼叫失敗（${detail}）。${tailZh}`,
+      en: `The model call failed (${detail}). ${tailEn}`,
     };
   }
   return {
-    zh: "模型呼叫失敗。以下係離線知識庫，不是模型回覆。",
-    en: "The model call failed. The notes below are the offline knowledge base, not a model reply.",
+    zh: `模型呼叫失敗。${tailZh}`,
+    en: `The model call failed. ${tailEn}`,
   };
 }
 
