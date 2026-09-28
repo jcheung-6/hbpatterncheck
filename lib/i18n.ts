@@ -49,6 +49,11 @@ export const copy = {
     source: "資料來源",
     kbVersion: "知識庫版本",
     chips: ["會唔會係 Hb Constant Spring？", "下一步應該做咩確認？", "同 Hb E trait 有何分別？"],
+    starters: ["Hb E 同 A2 點分？", "Hb H 喺 HPLC 會唔會見到？", "Constant Spring 要做咩確認？"],
+    llmOn: "模型已連接",
+    llmOff: "伺服器未見 API 金鑰",
+    replyModel: "模型回覆",
+    replyTemplate: "離線知識庫",
   },
   en: {
     title: "Hb Pattern Bench",
@@ -97,6 +102,11 @@ export const copy = {
     source: "Data source",
     kbVersion: "Knowledge base",
     chips: ["Could this be Hb Constant Spring?", "What should be confirmed next?", "How is this different from Hb E trait?"],
+    starters: ["How does Hb E differ from A2?", "Is Hb H usually seen on HPLC?", "What confirms Constant Spring?"],
+    llmOn: "Model linked",
+    llmOff: "Server has no API key",
+    replyModel: "Model reply",
+    replyTemplate: "Offline knowledge base",
   },
 } as const;
 

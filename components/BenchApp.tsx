@@ -14,7 +14,7 @@ type LocalImage = { name: string; url: string; dataUrl: string };
 type Turn =
   | { id: string; kind: "user"; text: string; images: { name: string; url: string }[] }
   | { id: string; kind: "result"; payload: InterpretOk; teaching?: { zh: string; en: string } }
-  | { id: string; kind: "note"; zh: string; en: string; searches: SearchHit[] }
+  | { id: string; kind: "note"; zh: string; en: string; searches: SearchHit[]; source: "template" | "openrouter" }
   | { id: string; kind: "error"; zh: string; en: string };
 
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -52,11 +52,23 @@ export function BenchApp() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState("");
+  const [llm, setLlm] = useState<{ llm: boolean; model: string } | null>(null);
   const t = copy[locale];
 
   useEffect(() => {
     const saved = window.localStorage.getItem("hbbench-locale");
     if (saved === "en" || saved === "zh") setLocale(saved);
+  }, []);
+
+  useEffect(() => {
+    void fetch("/api/status")
+      .then((response) => response.json())
+      .then((body: { llm?: unknown; model?: unknown }) => {
+        if (typeof body.llm === "boolean" && typeof body.model === "string") {
+          setLlm({ llm: body.llm, model: body.model });
+        }
+      })
+      .catch(() => setLlm(null));
   }, []);
 
   useEffect(() => {
@@ -153,12 +165,22 @@ export function BenchApp() {
           body: JSON.stringify({ question: text, history, rule: lastRule }),
         });
         const body = (await response.json()) as
-          | { ok: true; zh: string; en: string; searches: SearchHit[] }
+          | { ok: true; zh: string; en: string; searches: SearchHit[]; source?: "template" | "openrouter" }
           | { ok: false; error: { zh: string; en: string } };
         if (!body.ok) {
           setTurns((current) => [...current, { id: uid(), kind: "error", zh: body.error.zh, en: body.error.en }]);
         } else {
-          setTurns((current) => [...current, { id: uid(), kind: "note", zh: body.zh, en: body.en, searches: body.searches }]);
+          setTurns((current) => [
+            ...current,
+            {
+              id: uid(),
+              kind: "note",
+              zh: body.zh,
+              en: body.en,
+              searches: body.searches,
+              source: body.source === "openrouter" ? "openrouter" : "template",
+            },
+          ]);
         }
       }
     } catch {
@@ -213,6 +235,11 @@ export function BenchApp() {
           </div>
         </div>
         <div className="lang" role="group" aria-label={t.language}>
+          {llm ? (
+            <span className={llm.llm ? "pill on" : "pill off"}>
+              {llm.llm ? `${t.llmOn} · ${llm.model}` : t.llmOff}
+            </span>
+          ) : null}
           <button type="button" aria-pressed={locale === "zh"} onClick={() => setLocale("zh")}>
             繁中
           </button>
@@ -259,6 +286,7 @@ export function BenchApp() {
               }
               return (
                 <div className="bubble" key={turn.id}>
+                  <p className="meta">{turn.source === "openrouter" ? t.replyModel : t.replyTemplate}</p>
                   <p>{turn.zh}</p>
                   <p className="en">{turn.en}</p>
                   {turn.searches.length ? (
@@ -350,24 +378,22 @@ export function BenchApp() {
                 {t.newCase}
               </button>
             </div>
-            {lastRule ? (
-              <div className="chips">
-                {t.chips.map((chip) => (
-                  <button
-                    key={chip}
-                    type="button"
-                    className="chip"
-                    disabled={busy}
-                    onClick={() => {
-                      setNotes(chip);
-                      void run({ notes: chip, files: [] });
-                    }}
-                  >
-                    {chip}
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            <div className="chips">
+              {(lastRule ? t.chips : t.starters).map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  className="chip"
+                  disabled={busy}
+                  onClick={() => {
+                    setNotes(chip);
+                    void run({ notes: chip, files: [] });
+                  }}
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
           </form>
         </div>
         <aside className="side">

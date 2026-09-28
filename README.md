@@ -126,7 +126,8 @@ npm run build
 ## Layout
 
 - `app/api/interpret` — image or peak table → rules → optional bilingual note
-- `app/api/chat` — follow-up, grounded on the rule result
+- `app/api/chat` — questions with or without a trace. The model is asked to answer from the knowledge base; if that call fails, the reply says so and still includes the offline notes. It does not stop at “paste a peak table”.
+- `app/api/status` — `{ llm, model }` for the header pill. It reports whether this server process loaded `OPENROUTER_API_KEY`. It never returns the key.
 - `lib/openrouter.ts` — the only model client
 - `lib/parsers/` — Variant II retention windows and Sebia zones
 - `lib/interpret.ts` — pattern fit

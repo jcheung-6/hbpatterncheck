@@ -274,6 +274,16 @@ test("identifiers are detected and a follow-up does not promote Constant Spring 
   assert.doesNotMatch(`${answer.zh} ${answer.en}`, /確診為|confirmed genotype/);
 });
 
+test("a question with no trace still answers Hb E from the knowledge base", () => {
+  const answer = followUpFromRules("Hb E 同 A2 點分？", null);
+  assert.match(answer.zh, /不能單憑/);
+  assert.match(answer.zh, /一齊流出/);
+  assert.match(answer.en, /co-elut/i);
+  assert.match(answer.en, /A2 window/i);
+  assert.doesNotMatch(answer.en, /Paste a peak table or upload an image/);
+  assert.doesNotMatch(`${answer.zh} ${answer.en}`, /確診為|confirmed genotype/);
+});
+
 test("disclaimer text is the bench wording", () => {
   assert.equal(DISCLAIMER_ZH.includes("僅供專業人員參考，非診斷器材"), true);
   assert.equal(DISCLAIMER_ZH.includes("唔存病人姓名"), true);

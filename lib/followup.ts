@@ -21,8 +21,8 @@ export function followUpFromRules(question: string, rule: RuleResult | null): {
     partsZh.push(rule.insufficient_zh);
     partsEn.push(rule.insufficient_en);
   } else {
-    partsZh.push("未有上一張圖嘅結構化結果。可以貼峰表或上傳圖像。");
-    partsEn.push("There is no structured result from a previous trace yet. Paste a peak table or upload an image.");
+    partsZh.push("未有層析圖或電泳圖。答案只根據知識庫，不會估造峰。");
+    partsEn.push("There is no chromatogram or electropherogram yet. The answer uses the knowledge base only and does not invent peaks.");
   }
 
   if (asksCompare) {
@@ -45,18 +45,31 @@ export function followUpFromRules(question: string, rule: RuleResult | null): {
 
   for (const variant of matched.slice(0, 2)) {
     const leading = rule ? patternMentions(rule, variant.id) : false;
-    partsZh.push(
-      leading
-        ? `知識庫有「${variant.name_zh}」，而且今次排名有將佢列入考慮。這仍然不是證明。`
-        : `你問到「${variant.name_zh}」。今次第一位模式不是以佢做主題；下面只係知識庫對照。`,
-    );
-    partsEn.push(
-      leading
-        ? `The knowledge base includes “${variant.name_en}”, and this ranking does consider it. That is still not proof.`
-        : `You asked about “${variant.name_en}”. It is not the leading pattern of this ranking; the notes below are knowledge-base context only.`,
-    );
+    if (!rule) {
+      partsZh.push(`你問「${variant.name_zh}」。未有今次個案嘅峰，下面只係知識庫，不會估造百分比。`);
+      partsEn.push(
+        `You asked about “${variant.name_en}”. There is no peak table for this case, so these notes are knowledge-base context only and no percentages are invented.`,
+      );
+    } else if (leading) {
+      partsZh.push(`知識庫有「${variant.name_zh}」，而且今次排名有將佢列入考慮。這仍然不是證明。`);
+      partsEn.push(
+        `The knowledge base includes “${variant.name_en}”, and this ranking does consider it. That is still not proof.`,
+      );
+    } else {
+      partsZh.push(`你問到「${variant.name_zh}」。今次第一位模式不是以佢做主題；下面只係知識庫對照。`);
+      partsEn.push(
+        `You asked about “${variant.name_en}”. It is not the leading pattern of this ranking; the notes below are knowledge-base context only.`,
+      );
+    }
     partsZh.push(`HPLC：${variant.hplc_zh} 毛細管電泳：${variant.ce_zh}`);
     partsEn.push(`HPLC: ${variant.hplc_en} Capillary electrophoresis: ${variant.ce_en}`);
+  }
+
+  if (!matched.length && !rule && !asksNext && !asksCompare) {
+    partsZh.push("可以問知識庫入面嘅變異體，例如 Hb E、Hb H、Constant Spring、β-地貧。有峰表先可以排今次個案。");
+    partsEn.push(
+      "You can ask about a named variant in the knowledge base, such as Hb E, Hb H, Constant Spring, or β-thalassaemia. A peak table is needed before this case can be ranked.",
+    );
   }
 
   if (!matched.length && !asksNext && !asksCompare && rule?.pitfalls.length) {

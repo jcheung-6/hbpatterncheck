@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runInterpretation } from "../lib/pipeline";
+import { runFollowUp, runInterpretation } from "../lib/pipeline";
 import { openRouterHeaders } from "../lib/openrouter";
 import type { Extraction } from "../lib/types";
 
@@ -105,6 +105,87 @@ test("identifiers in the note are refused before any model call", async () => {
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.error.code, "identifiers");
+});
+
+test("follow-up without a key says the server did not load it", async () => {
+  const previous = process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_API_KEY;
+  try {
+    const result = await runFollowUp({ question: "Hb E 同 A2 點分？", rule: null });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.source, "template");
+    assert.match(result.zh, /未載入/);
+    assert.match(result.zh, /一齊流出/);
+    assert.match(result.en, /co-elut/i);
+    assert.doesNotMatch(result.en, /Paste a peak table or upload an image/);
+  } finally {
+    if (previous) process.env.OPENROUTER_API_KEY = previous;
+    else delete process.env.OPENROUTER_API_KEY;
+  }
+});
+
+test("an injected follow-up completion is used instead of the offline note", async () => {
+  const previous = process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_API_KEY;
+  try {
+    const result = await runFollowUp(
+      { question: "what is Hb E?", rule: null },
+      {
+        complete: async () => ({
+          zh: "知識庫：E 同 A2 共流出。不能單憑一張圖確定基因型。",
+          en: "Hb E co-elutes with A2. A single trace cannot establish a genotype.",
+          model: "test/chat",
+        }),
+      },
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.source, "openrouter");
+    assert.match(result.zh, /共流出/);
+    assert.doesNotMatch(result.zh, /未載入/);
+  } finally {
+    if (previous) process.env.OPENROUTER_API_KEY = previous;
+    else delete process.env.OPENROUTER_API_KEY;
+  }
+});
+
+test("a failed JSON follow-up falls back to plain text, and a total failure is labeled", async () => {
+  const previous = process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_API_KEY;
+  try {
+    const fallback = await runFollowUp(
+      { question: "Hb E?", rule: null },
+      {
+        complete: async () => null,
+        chat: async () => ({ content: "ZH: E 同 A2 共流出。\nEN: Hb E co-elutes in the A2 window.", model: "test" }),
+      },
+    );
+    assert.equal(fallback.ok, true);
+    if (!fallback.ok) return;
+    assert.equal(fallback.source, "openrouter");
+    assert.match(fallback.en, /A2 window/);
+
+    const failed = await runFollowUp(
+      { question: "Hb E?", rule: null },
+      {
+        complete: async () => {
+          throw new Error("schema");
+        },
+        chat: async () => {
+          throw new Error("down");
+        },
+      },
+    );
+    assert.equal(failed.ok, true);
+    if (!failed.ok) return;
+    assert.equal(failed.source, "template");
+    assert.match(failed.zh, /模型呼叫失敗/);
+    assert.match(failed.zh, /一齊流出/);
+  } finally {
+    if (previous) process.env.OPENROUTER_API_KEY = previous;
+    else delete process.env.OPENROUTER_API_KEY;
+  }
 });
 
 test("OpenRouter headers stay server-side and name the app", () => {

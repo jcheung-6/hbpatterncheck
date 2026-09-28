@@ -5,14 +5,14 @@ import { coerceExtraction } from "@/lib/extraction";
 import { ImagePrepError, normalizeImage } from "@/lib/image";
 import { interpretCase } from "@/lib/interpret";
 import { renderNarrative } from "@/lib/narrative";
-import { OpenRouterError, hasOpenRouterKey, modelNames, openrouterJson } from "@/lib/openrouter";
+import { OpenRouterError, hasOpenRouterKey, modelNames, openrouterChat, openrouterJson, parseModelJson } from "@/lib/openrouter";
 import { CHAT_SYSTEM, NARRATIVE_SYSTEM, VISION_SYSTEM, visionUserText } from "@/lib/prompts";
 import { redactIdentifiers, containsIdentifier } from "@/lib/redact";
 import { EXTRACTION_SCHEMA, NARRATIVE_SCHEMA } from "@/lib/schema";
 import { buildSearchHits } from "@/lib/search";
 import { parsePeakTable } from "@/lib/table";
 import type { Extraction, InstrumentChoice, InstrumentId, InterpretResponse, RawPeak, RuleResult, SearchHit } from "@/lib/types";
-import { followUpFromRules } from "@/lib/followup";
+import { followUpFromRules, kbCardsForQuestion } from "@/lib/followup";
 
 export type ImagePayload = { mime: string; data_base64: string };
 
@@ -300,50 +300,161 @@ async function defaultComplete(args: { system: string; user: string }) {
   return { zh: data.zh, en: data.en, model: result.model };
 }
 
-export async function runFollowUp(input: {
-  question: string;
-  history?: { role: "user" | "assistant"; content: string }[];
-  rule: RuleResult | null;
-}): Promise<
+const OFFLINE_ZH =
+  "伺服器未載入 OPENROUTER_API_KEY。檔案入面有匙都唔算，要喺 hbpatterncheck 重新執行 npm run dev。以下不是模型回覆。";
+const OFFLINE_EN =
+  "This server did not load OPENROUTER_API_KEY. A key in the file does not count until you restart npm run dev inside hbpatterncheck. This is not a model reply.";
+
+type FollowChat = (args: { system: string; user: string }) => Promise<{ content: string; model: string }>;
+
+function usableReply(zh: string, en: string): boolean {
+  return Boolean(zh.trim() && en.trim()) && !blockedNarrative(zh) && !blockedNarrative(en);
+}
+
+function splitBilingualReply(content: string): { zh: string; en: string } | null {
+  const trimmed = content.trim();
+  if (!trimmed) return null;
+  try {
+    const data = parseModelJson(trimmed) as { zh?: unknown; en?: unknown };
+    if (typeof data.zh === "string" && typeof data.en === "string") {
+      return { zh: data.zh.trim(), en: data.en.trim() };
+    }
+  } catch {
+    /* plain text */
+  }
+  const labeled = trimmed.match(/^ZH\s*[:：]\s*([\s\S]*?)\n\s*EN\s*[:：]\s*([\s\S]*)$/i);
+  if (labeled) return { zh: labeled[1].trim(), en: labeled[2].trim() };
+  const clipped = trimmed.slice(0, 2000);
+  return { zh: clipped, en: clipped };
+}
+
+function failureNote(error: unknown): { zh: string; en: string } {
+  const code = error instanceof OpenRouterError ? error.code : "";
+  if (code === "unauthorized") {
+    return {
+      zh: "模型呼叫失敗（金鑰被拒絕）。以下係離線知識庫。",
+      en: "The model call failed (the key was rejected). Offline knowledge-base notes follow.",
+    };
+  }
+  if (code === "rate_limit") {
+    return {
+      zh: "模型呼叫失敗（速率限制）。以下係離線知識庫。",
+      en: "The model call failed (rate limit). Offline knowledge-base notes follow.",
+    };
+  }
+  return {
+    zh: "模型呼叫失敗。以下係離線知識庫，不是模型回覆。",
+    en: "The model call failed. The notes below are the offline knowledge base, not a model reply.",
+  };
+}
+
+export async function runFollowUp(
+  input: {
+    question: string;
+    history?: { role: "user" | "assistant"; content: string }[];
+    rule: RuleResult | null;
+  },
+  deps?: { complete?: CompleteFn; chat?: FollowChat },
+): Promise<
   | { ok: true; zh: string; en: string; searches: SearchHit[]; source: "template" | "openrouter" }
   | ReturnType<typeof errorBody>
 > {
   const question = input.question.slice(0, 2000);
   if (containsIdentifier(question)) return errorBody("identifiers");
   const grounded = followUpFromRules(question, input.rule);
-  if (!hasOpenRouterKey()) {
-    return { ok: true, zh: grounded.zh, en: grounded.en, searches: grounded.searches, source: "template" };
-  }
-  try {
-    const { text } = modelNames();
-    const history = (input.history ?? []).slice(-6).map((item) => ({
-      role: item.role,
-      content: item.content.slice(0, 1500),
-    }));
-    const result = await openrouterJson({
-      model: text,
-      temperature: 0.2,
-      maxTokens: 1200,
-      schema: NARRATIVE_SCHEMA,
-      messages: [
-        { role: "system", content: CHAT_SYSTEM },
-        ...history,
-        {
-          role: "user",
-          content: JSON.stringify({
-            question,
-            grounding_zh: grounded.zh,
-            grounding_en: grounded.en,
-          }),
-        },
-      ],
-    });
-    const data = result.data as { zh?: unknown; en?: unknown };
-    if (typeof data.zh !== "string" || typeof data.en !== "string" || blockedNarrative(data.zh) || blockedNarrative(data.en)) {
-      return { ok: true, zh: grounded.zh, en: grounded.en, searches: grounded.searches, source: "template" };
+  const offline = { ok: true as const, zh: `${OFFLINE_ZH}${grounded.zh}`, en: `${OFFLINE_EN} ${grounded.en}`, searches: grounded.searches, source: "template" as const };
+  const canCall = hasOpenRouterKey() || Boolean(deps?.complete) || Boolean(deps?.chat);
+  if (!canCall) return offline;
+
+  const cards = kbCardsForQuestion(question, input.rule).slice(0, 3).map((card) => ({
+    name_zh: card.name_zh,
+    name_en: card.name_en,
+    hplc_zh: card.hplc_zh,
+    hplc_en: card.hplc_en,
+    ce_zh: card.ce_zh,
+    ce_en: card.ce_en,
+  }));
+  const userPayload = JSON.stringify({
+    question,
+    has_trace: Boolean(input.rule?.most_likely),
+    grounding_zh: grounded.zh,
+    grounding_en: grounded.en,
+    knowledge_base: cards,
+  });
+  const history = (input.history ?? []).slice(-6).map((item) => ({
+    role: item.role,
+    content: item.content.slice(0, 1500),
+  }));
+  let lastError: unknown;
+
+  const accept = (zh: string, en: string) =>
+    usableReply(zh, en)
+      ? { ok: true as const, zh, en, searches: grounded.searches, source: "openrouter" as const }
+      : null;
+
+  if (deps?.complete) {
+    try {
+      const written = await deps.complete({ system: CHAT_SYSTEM, user: userPayload });
+      if (written) {
+        const accepted = accept(written.zh, written.en);
+        if (accepted) return accepted;
+      }
+    } catch (error) {
+      lastError = error;
     }
-    return { ok: true, zh: data.zh, en: data.en, searches: grounded.searches, source: "openrouter" };
-  } catch {
-    return { ok: true, zh: grounded.zh, en: grounded.en, searches: grounded.searches, source: "template" };
+  } else if (hasOpenRouterKey()) {
+    try {
+      const { text } = modelNames();
+      const result = await openrouterJson({
+        model: text,
+        temperature: 0.2,
+        maxTokens: 1200,
+        schema: NARRATIVE_SCHEMA,
+        messages: [
+          { role: "system", content: CHAT_SYSTEM },
+          ...history,
+          { role: "user", content: userPayload },
+        ],
+      });
+      const data = result.data as { zh?: unknown; en?: unknown };
+      if (typeof data.zh === "string" && typeof data.en === "string") {
+        const accepted = accept(data.zh, data.en);
+        if (accepted) return accepted;
+      }
+    } catch (error) {
+      lastError = error;
+      if (error instanceof OpenRouterError && (error.code === "unauthorized" || error.code === "rate_limit" || error.code === "missing_key")) {
+        const note = failureNote(error);
+        return { ok: true, zh: `${note.zh}${grounded.zh}`, en: `${note.en} ${grounded.en}`, searches: grounded.searches, source: "template" };
+      }
+    }
   }
+
+  if (deps?.chat || hasOpenRouterKey()) {
+    try {
+      const plainSystem = `${CHAT_SYSTEM}\nIf you cannot return JSON, reply exactly in this shape:\nZH: <Traditional Chinese>\nEN: <English>`;
+      const plain = deps?.chat
+        ? await deps.chat({ system: plainSystem, user: userPayload })
+        : await openrouterChat({
+            model: modelNames().text,
+            temperature: 0.2,
+            maxTokens: 1200,
+            messages: [
+              { role: "system", content: plainSystem },
+              ...history,
+              { role: "user", content: userPayload },
+            ],
+          });
+      const parsed = splitBilingualReply(plain.content);
+      if (parsed) {
+        const accepted = accept(parsed.zh, parsed.en);
+        if (accepted) return accepted;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const note = failureNote(lastError);
+  return { ok: true, zh: `${note.zh}${grounded.zh}`, en: `${note.en} ${grounded.en}`, searches: grounded.searches, source: "template" };
 }
