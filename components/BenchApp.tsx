@@ -209,7 +209,9 @@ export function BenchApp() {
           </div>
           <div>
             <h1>{t.title}</h1>
-            <p className="sub">{t.subtitle}</p>
+            <p className="sub">
+              {t.subtitle} · <a href="/similar">{locale === "zh" ? "相似圖譜" : "Similar traces"}</a>
+            </p>
           </div>
         </div>
         <div className="lang" role="group" aria-label={t.language}>

@@ -109,7 +109,7 @@ export const limits = {
     "Hb H 同 Constant Spring 定量會偏低，HPLC 常常積分唔到。",
     "新生兒、輸血後、缺鐵會改變判讀。",
     "保留時間同 zone 要對本地儀器 library。模型會誤讀重疊峰；以列印數值為準。",
-    "圖像只用於當次請求，伺服器不建立病人圖庫，亦不把圖像寫入日誌。設有 API 金鑰時，圖像會傳去 OpenRouter。",
+    "判讀頁嘅圖像只用於當次請求，唔寫入日誌。相似圖譜頁只保存曲線同百分比，唔保存檔名、姓名或編號。設有 API 金鑰時，判讀圖像會傳去 OpenRouter。",
     "搜尋連結係文獻入口，不是臨床建議。",
   ],
   en: [
@@ -120,7 +120,7 @@ export const limits = {
     "Hb H and Constant Spring are underestimated, and HPLC often does not integrate them.",
     "Newborns, recent transfusion, and iron deficiency change the reading.",
     "Retention times and zones must match the local instrument library. The model can misread overlapping peaks; trust the printed numbers.",
-    "Images are used for the request only. The server does not keep a patient archive and does not write images to the log. With an API key, images are sent to OpenRouter.",
+    "Images on the interpret page are used for that request only and are not logged. The similar-traces page stores curves and percentages only, never filenames, names, or identifiers. With an API key, interpret images are sent to OpenRouter.",
     "Search links are literature doorways, not clinical advice.",
   ],
 } as const;
