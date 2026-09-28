@@ -25,7 +25,7 @@ test("Variant II shoulder pattern ranks the P3 shoulder ahead of a raised A2", (
     ],
   });
   const matches = rankTraces(query, seedTraces(), 6).matches;
-  assert.equal(matches[0]?.id, "seed-vii-p3-shoulder");
+  assert.equal(matches[0]?.id, "seed-vii-p3-high");
   assert.ok(matches.every((match) => match.method === "variant_ii"));
   const beta = matches.findIndex((match) => match.id === "seed-vii-beta");
   const largeA2 = matches.findIndex((match) => match.id === "seed-vii-a2-large");

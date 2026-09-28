@@ -89,7 +89,7 @@ const SEEDS: SeedInput[] = [
     ],
   },
   {
-    id: "seed-vii-p3-shoulder",
+    id: "seed-vii-p3-high",
     method: "variant_ii",
     axisStart: 0,
     axisEnd: 6,
@@ -104,7 +104,7 @@ const SEEDS: SeedInput[] = [
     ],
   },
   {
-    id: "seed-vii-a0-left-base",
+    id: "seed-vii-near-a0",
     method: "variant_ii",
     axisStart: 0,
     axisEnd: 6,
