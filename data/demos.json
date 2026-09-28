@@ -1,0 +1,60 @@
+{
+  "cases": [
+    {
+      "id": "beta_thal_trait",
+      "title_zh": "示範 1 · β-地貧特質",
+      "title_en": "Demo 1 · β-thalassaemia trait",
+      "instrument": "variant_ii",
+      "image": "/demos/beta-thal-trait.png",
+      "notes_zh": "成人。MCV 66 fL。Hb 11.8 g/dL。無近期輸血。無缺鐵紀錄。",
+      "notes_en": "Adult. MCV 66 fL. Hb 11.8 g/dL. No recent transfusion. No iron deficiency on record.",
+      "expected_top_pattern": "beta_thal_trait",
+      "teaching_zh": "A2 窗 5.5%、F 0.8%、主峰係 A，係 Variant II 上典型嘅 β-地貧特質教學圖。香港呢個百分比最常見係 β-地貧特質，但 Lepore 等同窗變異仍要記得。缺鐵通常會壓低 A2，所以灰區先至最容易漏；5.5% 已經頗典型，仍建議有 CBC。α-地貧可以同時存在，層析圖排除唔到。這不是基因型。",
+      "teaching_en": "An A2-window fraction of 5.5% with F 0.8% and A as the main peak is the usual Variant II teaching pattern of β-thalassaemia trait. In Hong Kong that percentage is most often β-thalassaemia trait; Lepore and other A2-window variants stay on the list. Iron deficiency tends to lower A2, so the borderline band is where trait is missed; 5.5% is already typical, and a CBC is still appropriate. Co-inherited α-thalassaemia is not excluded by the trace. This is not a genotype.",
+      "peaks": [
+        { "name_or_label": "F", "retention_or_migration": "1.10 min", "percent": 0.8, "zone_or_window": "F", "notes": "" },
+        { "name_or_label": "P2", "retention_or_migration": "1.33 min", "percent": 3.4, "zone_or_window": "P2", "notes": "" },
+        { "name_or_label": "P3", "retention_or_migration": "1.70 min", "percent": 3.9, "zone_or_window": "P3", "notes": "" },
+        { "name_or_label": "A0", "retention_or_migration": "2.47 min", "percent": 86.4, "zone_or_window": "A0", "notes": "" },
+        { "name_or_label": "A2", "retention_or_migration": "3.65 min", "percent": 5.5, "zone_or_window": "A2", "notes": "" }
+      ]
+    },
+    {
+      "id": "hb_e_trait",
+      "title_zh": "示範 2 · Hb E trait",
+      "title_en": "Demo 2 · Hb E trait",
+      "instrument": "variant_ii",
+      "image": "/demos/hb-e-trait.png",
+      "notes_zh": "成人。MCV 71 fL。Hb 12.4 g/dL。無近期輸血。",
+      "notes_en": "Adult. MCV 71 fL. Hb 12.4 g/dL. No recent transfusion.",
+      "expected_top_pattern": "hb_e_trait",
+      "teaching_zh": "A2 窗 29.7% 不是「超高 A2」嘅 β-地貧。Variant II β-地貧短程式上 Hb E 同 A2 一齊流出。大約 25–35% 而 Hb A 仍係主峰，教學上最似 Hb E trait。EE 通常高過約 85%。E／β-地貧多數 F 更高、Hb 更低，但百分比會重疊，所以 F 只有 0.6% 仍不能完全排除。下一步係用 Capillarys 分開 E 同 A2。同窗鑑別包括 Hb D-Iran。這不是基因型。",
+      "teaching_en": "An A2-window fraction of 29.7% is not β-thalassaemia with a 'very high A2'. On the Variant II β-thal short program Hb E co-elutes with A2. About 25–35% with Hb A still the main peak is the teaching pattern of Hb E trait. Hb EE is usually above about 85%. Hb E/β-thalassaemia more often has higher F and a lower Hb, but the ranges overlap, so F of 0.6% does not fully exclude it. The useful next method is Capillarys, which separates E from A2. Hb D-Iran shares the HPLC window. This is not a genotype.",
+      "peaks": [
+        { "name_or_label": "F", "retention_or_migration": "1.11 min", "percent": 0.6, "zone_or_window": "F", "notes": "" },
+        { "name_or_label": "P2", "retention_or_migration": "1.32 min", "percent": 3.1, "zone_or_window": "P2", "notes": "" },
+        { "name_or_label": "P3", "retention_or_migration": "1.69 min", "percent": 3.8, "zone_or_window": "P3", "notes": "" },
+        { "name_or_label": "A0", "retention_or_migration": "2.48 min", "percent": 62.8, "zone_or_window": "A0", "notes": "" },
+        { "name_or_label": "A2", "retention_or_migration": "3.67 min", "percent": 29.7, "zone_or_window": "A2", "notes": "" }
+      ]
+    },
+    {
+      "id": "hb_h_cs",
+      "title_zh": "示範 3 · Hb H 加慢區細峰",
+      "title_en": "Demo 3 · Hb H with a slow minor peak",
+      "instrument": "sebia_ce",
+      "image": "/demos/hb-h-cs.png",
+      "notes_zh": "成人，東南亞族裔。Hb 8.6 g/dL。MCV 67 fL。無近期輸血。",
+      "notes_en": "Adult, Southeast Asian ancestry. Hb 8.6 g/dL. MCV 67 fL. No recent transfusion.",
+      "expected_top_pattern": "hb_h_cs_like",
+      "teaching_zh": "Capillarys 教學圖：Z15 Hb H 10.1%，A2 1.4% 偏低，Z2 有一條 1.3% 慢峰。有 Hb H 再加早期細峰時，優先要確認嘅係 Hb H／Constant Spring 呢類非缺失 Hb H 病，鑑別係缺失型 Hb H 病加一條無特異性嘅雜峰。細峰可以係降解產物。CS 喺 HPLC 同電泳都會被低估，只做 gap-PCR 會漏。建議超活體染色同包括 CS 嘅 α 基因檢測。HPLC 很多時積分唔到 H。這不是基因型。",
+      "teaching_en": "Capillarys teaching trace: Hb H 10.1% in Z15, low A2 at 1.4%, and a 1.3% slow peak in Z2. Hb H plus an early minor peak is the pattern that should trigger confirmation of non-deletional Hb H disease such as Hb H/Constant Spring. The alternative is deletional Hb H disease plus a nonspecific minor peak. The small peak can be degraded haemoglobin. CS is underestimated on both HPLC and CE, and gap-PCR misses it. A supravital stain and α genotyping that includes CS are the suggested checks. HPLC often fails to integrate H. This is not a genotype.",
+      "peaks": [
+        { "name_or_label": "Unknown", "retention_or_migration": "Z2", "percent": 1.3, "zone_or_window": "Z2", "notes": "" },
+        { "name_or_label": "Hb A2", "retention_or_migration": "Z3", "percent": 1.4, "zone_or_window": "Z3", "notes": "" },
+        { "name_or_label": "Hb A", "retention_or_migration": "Z9", "percent": 87.2, "zone_or_window": "Z9", "notes": "" },
+        { "name_or_label": "Hb H", "retention_or_migration": "Z15", "percent": 10.1, "zone_or_window": "Z15", "notes": "" }
+      ]
+    }
+  ]
+}
