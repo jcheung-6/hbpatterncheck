@@ -23,11 +23,19 @@ export async function POST(request: Request) {
     }
     const form = await request.formData();
     const file = form.get("file");
-    if (!(file instanceof File)) {
+    if (!file || typeof file === "string" || typeof file.arrayBuffer !== "function") {
       return NextResponse.json({ ok: false, errorZh: "請上載 PDF、PNG 或 JPEG。", errorEn: "Upload a PDF, PNG, or JPEG." }, { status: 400 });
     }
-    const name = file.name.toLowerCase();
-    const extension = name.endsWith(".pdf") ? ".pdf" : name.endsWith(".png") ? ".png" : name.endsWith(".jpg") || name.endsWith(".jpeg") ? ".jpg" : "";
+    const name = typeof file.name === "string" ? file.name.toLowerCase() : "";
+    const mime = typeof file.type === "string" ? file.type.toLowerCase() : "";
+    const extension =
+      name.endsWith(".pdf") || mime === "application/pdf" || mime === "application/x-pdf"
+        ? ".pdf"
+        : name.endsWith(".png") || mime === "image/png"
+          ? ".png"
+          : name.endsWith(".jpg") || name.endsWith(".jpeg") || mime === "image/jpeg"
+            ? ".jpg"
+            : "";
     if (!extension) {
       return NextResponse.json({ ok: false, errorZh: "只接受 PDF、PNG 或 JPEG。", errorEn: "Only PDF, PNG, or JPEG is accepted." }, { status: 400 });
     }

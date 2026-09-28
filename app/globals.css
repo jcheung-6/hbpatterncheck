@@ -180,6 +180,18 @@ textarea {
   color: var(--muted);
   background: #fbf8f2;
 }
+.drop-label { display: block; cursor: pointer; }
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .chip { font-size: 0.85rem; }
 details { margin-top: 8px; }

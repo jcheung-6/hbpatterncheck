@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import demos from "@/data/demos.json";
 import { ResultView } from "@/components/ResultView";
 import { kb } from "@/lib/kb";
 import { DISCLAIMER_EN, DISCLAIMER_ZH, copy, limits } from "@/lib/i18n";
+import { isPdfFile, MAX_REPORT_BYTES, setPendingReport } from "@/lib/pendingReport";
 import { containsIdentifier } from "@/lib/redact";
 import { parsePeakTable } from "@/lib/table";
 import type { InstrumentChoice, InterpretOk, RuleResult, SearchHit } from "@/lib/types";
@@ -52,6 +54,7 @@ export function BenchApp() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState("");
+  const router = useRouter();
   const t = copy[locale];
 
   useEffect(() => {
@@ -79,9 +82,14 @@ export function BenchApp() {
         setBanner(t.tooMany);
         break;
       }
-      if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-        setBanner(t.pdf);
-        continue;
+      if (isPdfFile(file)) {
+        if (file.size > MAX_REPORT_BYTES) {
+          setBanner(t.pdfTooBig);
+          return;
+        }
+        setPendingReport(file);
+        router.push("/similar");
+        return;
       }
       if (!file.type.startsWith("image/")) continue;
       if (file.size > MAX_BYTES) {
@@ -322,7 +330,7 @@ export function BenchApp() {
                 {t.upload}
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  accept="image/png,image/jpeg,image/webp,image/gif,.pdf,application/pdf"
                   multiple
                   hidden
                   onChange={(event) => {

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DISCLAIMER_EN, DISCLAIMER_ZH } from "@/lib/i18n";
+import { clearPendingReport, isPdfFile, MAX_REPORT_BYTES, peekPendingReport } from "@/lib/pendingReport";
 
 type Locale = "zh" | "en";
 type Peak = { name: string; position: number; percent: number };
@@ -34,12 +35,17 @@ type QueryView = {
 };
 type CatalogItem = { id: string; method: "variant_ii" | "sebia_ce"; source: "seed" | "library"; summaryZh: string; summaryEn: string };
 
+function isReport(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return isPdfFile(file) || file.type.startsWith("image/") || name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg");
+}
+
 const copy = {
   zh: {
     title: "相似圖譜",
     back: "返回判讀",
     lead: "同一種方法之內，用峰百分比同對齊主峰之後嘅曲線排名。檔名、姓名、編號都唔會保存，亦唔會當標籤。",
-    drop: "上載 Variant II 或 Sebia 報告（PDF、PNG、JPEG，12MB 以下）",
+    drop: "撳呢度或拖入 Variant II／Sebia 報告（PDF、PNG、JPEG，12MB 以下）。揀完就開始搜。",
     search: "搵相似",
     working: "讀緊曲線…",
     save: "加入圖庫",
@@ -63,7 +69,7 @@ const copy = {
     title: "Similar traces",
     back: "Back to interpret",
     lead: "Within one method, rank by peak percentages and by the curve after the main peak is aligned. Filenames, names, and identifiers are not stored and are not labels.",
-    drop: "Upload a Variant II or Sebia report (PDF, PNG, or JPEG, under 12 MB)",
+    drop: "Click here or drop a Variant II / Sebia report (PDF, PNG, or JPEG, under 12 MB). Search starts as soon as you choose a file.",
     search: "Find similar",
     working: "Reading the trace…",
     save: "Add to library",
@@ -95,11 +101,21 @@ export function SimilarApp() {
   const [seeds, setSeeds] = useState<CatalogItem[]>([]);
   const [library, setLibrary] = useState<CatalogItem[]>([]);
   const t = copy[locale];
+  const runSearchRef = useRef<(target: File) => Promise<void>>(async () => {});
 
   useEffect(() => {
     const saved = window.localStorage.getItem("hbbench-locale");
     if (saved === "en" || saved === "zh") setLocale(saved);
     void refreshCatalog();
+    const queued = peekPendingReport();
+    if (!queued) return;
+    let live = true;
+    void runSearchRef.current(queued).finally(() => {
+      if (live) clearPendingReport();
+    });
+    return () => {
+      live = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -114,19 +130,28 @@ export function SimilarApp() {
     setLibrary(body.library ?? []);
   }
 
-  async function searchFile() {
-    if (!file) return;
+  async function runSearch(target: File) {
+    if (!isReport(target)) {
+      setError(locale === "zh" ? "只接受 PDF、PNG 或 JPEG。" : "Only PDF, PNG, or JPEG is accepted.");
+      return;
+    }
+    if (target.size > MAX_REPORT_BYTES) {
+      setError(locale === "zh" ? "檔案超過 12MB。" : "That file is over 12 MB.");
+      return;
+    }
+    setFile(target);
     setBusy(true);
     setError("");
     setNotice("");
     try {
       const form = new FormData();
-      form.set("file", file);
+      form.set("file", target);
       const response = await fetch("/api/similar", { method: "POST", body: form });
-      const body = (await response.json()) as { ok: boolean; queries?: QueryView[]; errorZh?: string; errorEn?: string };
+      const body = (await response.json()) as { ok: boolean; queries?: QueryView[]; errorZh?: string; errorEn?: string; detail?: string };
       if (!body.ok || !body.queries) {
         setQueries([]);
-        setError(locale === "zh" ? body.errorZh || "讀唔到。" : body.errorEn || "Could not read the file.");
+        const message = locale === "zh" ? body.errorZh || "讀唔到。" : body.errorEn || "Could not read the file.";
+        setError(body.detail ? `${message} ${body.detail}` : message);
         return;
       }
       setQueries(body.queries);
@@ -135,6 +160,12 @@ export function SimilarApp() {
     } finally {
       setBusy(false);
     }
+  }
+
+  runSearchRef.current = runSearch;
+
+  function pickReport(next: File | null | undefined) {
+    if (next) void runSearch(next);
   }
 
   async function searchStored(item: CatalogItem) {
@@ -233,21 +264,29 @@ export function SimilarApp() {
       <div className="layout">
         <div>
           <div className="composer">
-            <div className="drop">{t.drop}</div>
-            <div className="row">
-              <label className="btn">
-                PDF / PNG / JPEG
+            <div
+              className="drop"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                pickReport(event.dataTransfer.files?.[0]);
+              }}
+            >
+              <label className="drop-label">
+                {busy ? t.working : t.drop}
                 <input
+                  className="file-input"
                   type="file"
-                  accept="application/pdf,image/png,image/jpeg"
-                  hidden
+                  accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
                   onChange={(event) => {
-                    setFile(event.target.files?.[0] ?? null);
+                    pickReport(event.target.files?.[0]);
                     event.target.value = "";
                   }}
                 />
               </label>
-              <button className="btn primary" type="button" disabled={busy || !file} onClick={() => void searchFile()}>
+            </div>
+            <div className="row">
+              <button className="btn primary" type="button" disabled={busy || !file} onClick={() => file && void runSearch(file)}>
                 {busy ? t.working : t.search}
               </button>
               {queries.some((query) => query.id.startsWith("q_")) ? (
