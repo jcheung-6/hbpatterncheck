@@ -28,6 +28,6 @@ export async function POST(request: Request) {
     const searches = await enrichPubmed(result.searches);
     return Response.json({ ...result, searches });
   } catch {
-    return Response.json(errorBody("provider"), { status: 502 });
+    return Response.json(errorBody("unreadable"), { status: 502 });
   }
 }

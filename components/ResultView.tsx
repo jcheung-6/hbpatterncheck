@@ -26,7 +26,7 @@ export function ResultView({
     <article className="card" aria-live="polite">
       <div className="kicker">
         <span className="pill">
-          {t.source}: {payload.extraction_source}
+          {t.source}: {payload.extraction_source === "local" ? (locale === "zh" ? "本機讀圖" : "local read") : payload.extraction_source}
         </span>
         <span className="pill">
           {t.kbVersion} {payload.kb_version}

@@ -12,7 +12,7 @@ import { parsePeakTable } from "@/lib/table";
 import type { InstrumentChoice, InterpretOk, RuleResult, SearchHit } from "@/lib/types";
 
 type Locale = "zh" | "en";
-type LocalImage = { name: string; url: string; dataUrl: string };
+type LocalImage = { name: string; url: string; dataUrl: string; mime: string };
 type Turn =
   | { id: string; kind: "user"; text: string; images: { name: string; url: string }[] }
   | { id: string; kind: "result"; payload: InterpretOk; teaching?: { zh: string; en: string } }
@@ -25,25 +25,15 @@ function uid(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-async function fileToJpeg(file: File): Promise<string> {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("canvas");
-  context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
-  if (!blob) throw new Error("blob");
-  const buffer = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
+async function filePayload(file: File): Promise<{ dataUrl: string; mime: string }> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return `data:image/jpeg;base64,${btoa(binary)}`;
+  const step = 0x8000;
+  for (let index = 0; index < bytes.length; index += step) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + step));
+  }
+  const mime = file.type || "application/octet-stream";
+  return { dataUrl: `data:${mime};base64,${btoa(binary)}`, mime };
 }
 
 export function BenchApp() {
@@ -96,8 +86,8 @@ export function BenchApp() {
         setBanner(t.tooBig);
         continue;
       }
-      const dataUrl = await fileToJpeg(file);
-      next.push({ name: file.name, url: URL.createObjectURL(file), dataUrl });
+      const payload = await filePayload(file);
+      next.push({ name: file.name, url: URL.createObjectURL(file), dataUrl: payload.dataUrl, mime: payload.mime });
     }
     if (next.length) setImages((current) => [...current, ...next].slice(0, 3));
   }
@@ -128,7 +118,7 @@ export function BenchApp() {
             notes: text,
             instrument: chosen,
             demoId: demoId ?? null,
-            images: files.map((file) => ({ mime: "image/jpeg", data_base64: file.dataUrl.split(",")[1] || "" })),
+            images: files.map((file) => ({ mime: file.mime, data_base64: file.dataUrl.split(",")[1] || "" })),
           }),
         });
         const body = (await response.json()) as InterpretOk | { ok: false; error: { zh: string; en: string } };
@@ -197,8 +187,8 @@ export function BenchApp() {
       if (!response.ok) throw new Error("demo image");
       const blob = await response.blob();
       const file = new File([blob], demo.image.split("/").pop() || "demo.png", { type: blob.type || "image/png" });
-      const dataUrl = await fileToJpeg(file);
-      const local = { name: file.name, url: URL.createObjectURL(file), dataUrl };
+      const payload = await filePayload(file);
+      const local = { name: file.name, url: URL.createObjectURL(file), dataUrl: payload.dataUrl, mime: payload.mime };
       setImages([local]);
       await run({ demoId: id, notes: note, instrument: chosen, files: [local] });
     } catch {

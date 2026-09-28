@@ -125,7 +125,7 @@ export type Warning = { zh: string; en: string };
 
 export type InterpretOk = {
   ok: true;
-  extraction_source: "openrouter" | "pasted_table" | "demo_fixture";
+  extraction_source: "local" | "openrouter" | "pasted_table" | "demo_fixture";
   vision_attempted: boolean;
   vision_model: string | null;
   narrative_source: "template" | "openrouter";

@@ -1,18 +1,17 @@
 import demos from "@/data/demos.json";
 import { kb } from "@/lib/kb";
 import { errorBody } from "@/lib/errors";
-import { coerceExtraction } from "@/lib/extraction";
 import { ImagePrepError, normalizeImage } from "@/lib/image";
 import { interpretCase } from "@/lib/interpret";
 import { renderNarrative } from "@/lib/narrative";
-import { OpenRouterError, hasOpenRouterKey, modelNames, openrouterJson } from "@/lib/openrouter";
-import { CHAT_SYSTEM, NARRATIVE_SYSTEM, VISION_SYSTEM, visionUserText } from "@/lib/prompts";
+import { OpenRouterError } from "@/lib/openrouter";
+import { NARRATIVE_SYSTEM } from "@/lib/prompts";
 import { redactIdentifiers, containsIdentifier } from "@/lib/redact";
-import { EXTRACTION_SCHEMA, NARRATIVE_SCHEMA } from "@/lib/schema";
 import { buildSearchHits } from "@/lib/search";
 import { parsePeakTable } from "@/lib/table";
 import type { Extraction, InstrumentChoice, InstrumentId, InterpretResponse, RawPeak, RuleResult, SearchHit } from "@/lib/types";
 import { followUpFromRules } from "@/lib/followup";
+import { readImagesLocally } from "@/lib/localRead";
 
 export type ImagePayload = { mime: string; data_base64: string };
 
@@ -64,7 +63,12 @@ function blockedNarrative(text: string): boolean {
 
 export async function runInterpretation(
   input: RunInput,
-  deps?: { vision?: VisionFn; complete?: CompleteFn; prepare?: (buffer: Buffer) => Promise<{ dataUrl: string }> },
+  deps?: {
+    vision?: VisionFn;
+    complete?: CompleteFn;
+    prepare?: (buffer: Buffer) => Promise<{ dataUrl: string }>;
+    readLocal?: (images: ImagePayload[]) => Promise<Extraction | null>;
+  },
 ): Promise<InterpretResponse> {
   const notes = (input.notes ?? "").slice(0, 2000);
   if (containsIdentifier(notes)) return errorBody("identifiers");
@@ -74,32 +78,43 @@ export async function runInterpretation(
   const demo = demoById(input.demoId);
   const warningList: { zh: string; en: string }[] = [];
   let extraction: Extraction | null = null;
-  let source: "openrouter" | "pasted_table" | "demo_fixture" = "pasted_table";
+  let source: "local" | "openrouter" | "pasted_table" | "demo_fixture" = "pasted_table";
   let visionAttempted = false;
   let visionModel: string | null = null;
   let peaks: RawPeak[] = [];
   let readable = true;
 
-  if (images.length && !hasOpenRouterKey() && !deps?.vision) {
+  const shouldReadLocal = images.length > 0 && table.length < 2 && (Boolean(deps?.readLocal) || !demo);
+  const localRead = shouldReadLocal ? await (deps?.readLocal ?? readImagesLocally)(images) : null;
+  if (localRead && localRead.peaks.some((peak) => peak.percent != null)) {
+    extraction = localRead;
+    peaks = localRead.peaks;
+    source = "local";
+    readable = localRead.readable;
+    warningList.push({
+      zh: "峰係喺本機從報告讀出，圖像冇送到 OpenRouter。",
+      en: "Peaks were read on this machine. The image was not sent to OpenRouter.",
+    });
+  } else if (images.length && !deps?.vision) {
     if (table.length >= 2) {
       peaks = table;
       source = "pasted_table";
       warningList.push({
-        zh: "未設定 API 金鑰，圖像已略過。判讀用緊你貼上嘅峰表。",
-        en: "No API key is set, so the image was skipped. The interpretation uses the pasted peak table.",
+        zh: "本機讀唔到圖，判讀用緊你貼上嘅峰表。",
+        en: "The image could not be read locally. The interpretation uses the pasted peak table.",
       });
     } else if (demo && DEMO_IDS.has(demo.id)) {
       extraction = fixtureExtraction(demo.id);
       peaks = extraction.peaks;
       source = "demo_fixture";
       warningList.push({
-        zh: "未呼叫視覺模型（冇 API key）。以下用示範個案內置數值教學，不是讀圖結果。",
-        en: "The vision model was not called (no API key). These are the built-in demo figures for teaching, not a reading of the image.",
+        zh: "本機讀唔到圖，亦冇呼叫雲端模型。以下用示範個案內置數值教學，不是讀圖結果。",
+        en: "The image could not be read locally, and no cloud model was called. These are the built-in demo figures for teaching, not a reading of the image.",
       });
     } else {
-      return errorBody("missing_key");
+      return errorBody("unreadable");
     }
-  } else if (images.length) {
+  } else if (images.length && deps?.vision) {
     visionAttempted = true;
     const prepared: string[] = [];
     for (const image of images) {
@@ -113,7 +128,7 @@ export async function runInterpretation(
       }
     }
     try {
-      const vision = deps?.vision ?? defaultVision;
+      const vision = deps.vision;
       const reads: Extraction[] = [];
       for (const dataUrl of prepared) {
         const read = await vision({
@@ -183,9 +198,9 @@ export async function runInterpretation(
   let narrative = template;
   let narrativeSource: "template" | "openrouter" = "template";
   let textModel: string | null = null;
-  if (hasOpenRouterKey() || deps?.complete) {
+  if (deps?.complete && source !== "local") {
     try {
-      const complete = deps?.complete ?? defaultComplete;
+      const complete = deps.complete;
       const written = await complete({
         system: NARRATIVE_SYSTEM,
         user: JSON.stringify({
@@ -260,46 +275,6 @@ function mergeExtractions(reads: Extraction[]): Extraction {
   };
 }
 
-async function defaultVision(args: { dataUrl: string; instrumentHint: string; notes: string }) {
-  const { vision } = modelNames();
-  const result = await openrouterJson({
-    model: vision,
-    temperature: 0,
-    maxTokens: 1800,
-    schema: EXTRACTION_SCHEMA,
-    messages: [
-      { role: "system", content: VISION_SYSTEM },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: visionUserText(args.instrumentHint, args.notes) },
-          { type: "image_url", image_url: { url: args.dataUrl } },
-        ],
-      },
-    ],
-  });
-  const extraction = coerceExtraction(result.data);
-  if (!extraction) throw new OpenRouterError("bad_response", "schema");
-  return { extraction, model: result.model };
-}
-
-async function defaultComplete(args: { system: string; user: string }) {
-  const { text } = modelNames();
-  const result = await openrouterJson({
-    model: text,
-    temperature: 0.2,
-    maxTokens: 1400,
-    schema: NARRATIVE_SCHEMA,
-    messages: [
-      { role: "system", content: args.system },
-      { role: "user", content: args.user },
-    ],
-  });
-  const data = result.data as { zh?: unknown; en?: unknown };
-  if (typeof data.zh !== "string" || typeof data.en !== "string") return null;
-  return { zh: data.zh, en: data.en, model: result.model };
-}
-
 export async function runFollowUp(input: {
   question: string;
   history?: { role: "user" | "assistant"; content: string }[];
@@ -311,39 +286,5 @@ export async function runFollowUp(input: {
   const question = input.question.slice(0, 2000);
   if (containsIdentifier(question)) return errorBody("identifiers");
   const grounded = followUpFromRules(question, input.rule);
-  if (!hasOpenRouterKey()) {
-    return { ok: true, zh: grounded.zh, en: grounded.en, searches: grounded.searches, source: "template" };
-  }
-  try {
-    const { text } = modelNames();
-    const history = (input.history ?? []).slice(-6).map((item) => ({
-      role: item.role,
-      content: item.content.slice(0, 1500),
-    }));
-    const result = await openrouterJson({
-      model: text,
-      temperature: 0.2,
-      maxTokens: 1200,
-      schema: NARRATIVE_SCHEMA,
-      messages: [
-        { role: "system", content: CHAT_SYSTEM },
-        ...history,
-        {
-          role: "user",
-          content: JSON.stringify({
-            question,
-            grounding_zh: grounded.zh,
-            grounding_en: grounded.en,
-          }),
-        },
-      ],
-    });
-    const data = result.data as { zh?: unknown; en?: unknown };
-    if (typeof data.zh !== "string" || typeof data.en !== "string" || blockedNarrative(data.zh) || blockedNarrative(data.en)) {
-      return { ok: true, zh: grounded.zh, en: grounded.en, searches: grounded.searches, source: "template" };
-    }
-    return { ok: true, zh: data.zh, en: data.en, searches: grounded.searches, source: "openrouter" };
-  } catch {
-    return { ok: true, zh: grounded.zh, en: grounded.en, searches: grounded.searches, source: "template" };
-  }
+  return { ok: true, zh: grounded.zh, en: grounded.en, searches: grounded.searches, source: "template" };
 }

@@ -18,7 +18,7 @@ export const copy = {
     send: "傳送",
     sending: "處理緊…",
     upload: "上傳圖像",
-    drop: "拖入層析圖或電泳圖。PDF 會去相似圖譜搜尋。PNG／JPEG 用於判讀，每個 4MB 以下，最多 3 張。",
+    drop: "拖入層析圖或電泳圖。PDF 會去相似圖譜搜尋。PNG／JPEG 喺本機讀峰再判讀，唔會送去 OpenRouter。每個 4MB 以下，最多 3 張。",
     notes: "備註或峰表",
     placeholder: "可寫 MCV、輸血、新生兒。或者每行一個峰，例如：\nA2 5.5%\nA0 86.4%\nF 0.8%\n唔好輸入姓名、身份證號、住院號。",
     follow: "追問",
@@ -66,7 +66,7 @@ export const copy = {
     send: "Send",
     sending: "Working…",
     upload: "Upload images",
-    drop: "Drop a chromatogram or electropherogram. A PDF opens similar-trace search. PNG/JPEG stay here for interpretation, under 4 MB each, up to 3.",
+    drop: "Drop a chromatogram or electropherogram. A PDF opens similar-trace search. PNG/JPEG are read on this machine for interpretation and are not sent to OpenRouter. Under 4 MB each, up to 3.",
     notes: "Notes or peak table",
     placeholder:
       "Optional: MCV, transfusion, newborn. Or one peak per line, for example:\nA2 5.5%\nA0 86.4%\nF 0.8%\nDo not type names, identity numbers, or hospital numbers.",
@@ -111,7 +111,7 @@ export const limits = {
     "Hb H 同 Constant Spring 定量會偏低，HPLC 常常積分唔到。",
     "新生兒、輸血後、缺鐵會改變判讀。",
     "保留時間同 zone 要對本地儀器 library。模型會誤讀重疊峰；以列印數值為準。",
-    "判讀頁嘅圖像只用於當次請求，唔寫入日誌。相似圖譜頁只保存曲線同百分比，唔保存檔名、姓名或編號。設有 API 金鑰時，判讀圖像會傳去 OpenRouter。",
+    "判讀同相似搜尋都喺本機讀峰，圖像唔會因為讀峰而送到 OpenRouter。相似圖譜只保存曲線同百分比，唔保存檔名、姓名或編號。",
     "搜尋連結係文獻入口，不是臨床建議。",
   ],
   en: [
@@ -122,7 +122,7 @@ export const limits = {
     "Hb H and Constant Spring are underestimated, and HPLC often does not integrate them.",
     "Newborns, recent transfusion, and iron deficiency change the reading.",
     "Retention times and zones must match the local instrument library. The model can misread overlapping peaks; trust the printed numbers.",
-    "Images on the interpret page are used for that request only and are not logged. The similar-traces page stores curves and percentages only, never filenames, names, or identifiers. With an API key, interpret images are sent to OpenRouter.",
+    "Interpretation and similar search read peaks on this machine. Images are not sent to OpenRouter in order to read peaks. The similar-traces page stores curves and percentages only, never filenames, names, or identifiers.",
     "Search links are literature doorways, not clinical advice.",
   ],
 } as const;

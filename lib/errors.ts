@@ -36,8 +36,8 @@ export const ERRORS: Record<AppErrorCode, { zh: string; en: string }> = {
     en: "The file is over 4 MB and was rejected. Crop or export a smaller screenshot.",
   },
   unreadable: {
-    zh: "圖像未能可靠讀出峰。請上傳更清晰嘅裁片，或貼上報表上嘅數值表。系統不會估造峰。",
-    en: "The image could not be read reliably. Send a clearer crop or paste the numeric table from the printout. Peaks are not invented.",
+    zh: "本機讀唔到峰，圖像冇送到雲端模型。請上載儀器 PDF，或清晰嘅 PNG／JPEG。掃描檔需要本機有 tesseract。系統不會估造峰。",
+    en: "Peaks could not be read on this machine, and the image was not sent to a cloud model. Upload the analyser PDF or a clear PNG/JPEG. Scans need tesseract installed locally. Peaks are not invented.",
   },
   identifiers: {
     zh: "呢段字好像有病人姓名、身份證號或住院號。請刪除身份資料後再傳送。本程式不儲存病人身份。",

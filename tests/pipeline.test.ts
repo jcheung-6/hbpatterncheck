@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { extractionFromTraces } from "../lib/localRead";
 import { runInterpretation } from "../lib/pipeline";
 import { openRouterHeaders } from "../lib/openrouter";
 import type { Extraction } from "../lib/types";
@@ -76,6 +77,106 @@ test("a live vision result is not replaced by the demo answer key", async () => 
   } finally {
     if (previous) process.env.OPENROUTER_API_KEY = previous;
   }
+});
+
+test("a real report is read locally and does not call OpenRouter", async () => {
+  const previous = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "test-key";
+  let visionCalled = false;
+  let completeCalled = false;
+  try {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const result = await runInterpretation(
+      {
+        instrument: "variant_ii",
+        notes: "成人。無近期輸血。",
+        images: [{ mime: "image/jpeg", data_base64: jpeg.toString("base64") }],
+      },
+      {
+        readLocal: async () => normalExtraction(),
+        vision: async () => {
+          visionCalled = true;
+          return { extraction: normalExtraction(), model: "should-not-run" };
+        },
+        complete: async () => {
+          completeCalled = true;
+          return { zh: "雲端", en: "cloud", model: "should-not-run" };
+        },
+      },
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(visionCalled, false);
+    assert.equal(completeCalled, false);
+    assert.equal(result.extraction_source, "local");
+    assert.equal(result.vision_attempted, false);
+    assert.equal(result.narrative_source, "template");
+    assert.equal(result.rule.most_likely?.id, "normal_pattern");
+  } finally {
+    if (previous) process.env.OPENROUTER_API_KEY = previous;
+    else delete process.env.OPENROUTER_API_KEY;
+  }
+});
+
+test("an unreadable image is not sent to OpenRouter even when a key is set", async () => {
+  const previous = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = (async () => {
+    called = true;
+    throw new Error("network");
+  }) as typeof fetch;
+  try {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const result = await runInterpretation(
+      {
+        instrument: "variant_ii",
+        images: [{ mime: "image/jpeg", data_base64: jpeg.toString("base64") }],
+      },
+      { readLocal: async () => null },
+    );
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.error.code, "unreadable");
+    assert.equal(called, false);
+    assert.match(result.error.zh, /本機/);
+    assert.doesNotMatch(result.error.en, /OpenRouter call failed/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previous) process.env.OPENROUTER_API_KEY = previous;
+    else delete process.env.OPENROUTER_API_KEY;
+  }
+});
+
+test("a file with both methods keeps only the first method's peaks", () => {
+  const extraction = extractionFromTraces([
+    {
+      method: "variant_ii",
+      axisStart: 0,
+      axisEnd: 6,
+      curve: null,
+      peaks: [
+        { name: "A0", position: 2.4, percent: 82.74 },
+        { name: "A2", position: 3.64, percent: 2.6 },
+        { name: "P3", position: 1.72, percent: 5.7 },
+      ],
+    },
+    {
+      method: "sebia_ce",
+      axisStart: 0,
+      axisEnd: 300,
+      curve: null,
+      peaks: [
+        { name: "A", position: 140, percent: 97.5 },
+        { name: "A2", position: 250, percent: 2.5 },
+      ],
+    },
+  ]);
+  assert.ok(extraction);
+  assert.equal(extraction?.instrument_guess, "variant_ii");
+  assert.equal(extraction?.peaks.length, 3);
+  assert.ok(extraction?.peaks.every((peak) => peak.retention_or_migration.endsWith("min")));
 });
 
 test("pasted percentages work without an API key", async () => {
