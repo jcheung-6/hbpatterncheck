@@ -208,6 +208,12 @@ summary { cursor: pointer; color: var(--teal); }
 .err { color: var(--copper); }
 .prose { white-space: pre-wrap; }
 footer.fine { margin-top: 18px; color: var(--muted); font-size: 0.82rem; }
+.spark { width: 100%; height: 72px; margin: 8px 0; }
+.spark path { fill: none; stroke: var(--teal); stroke-width: 1.6; }
+.spark.overlay .query-line { stroke: var(--teal); }
+.spark.overlay .match-line { stroke: var(--copper); stroke-dasharray: 4 3; }
+.match { border-top: 1px solid var(--paper-2); padding: 10px 0; }
+.match-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 
 @media (max-width: 860px) {
   .layout { grid-template-columns: 1fr; }

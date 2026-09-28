@@ -17,6 +17,9 @@ dist/
 # generated demo intermediates
 public/demos/*.svg
 
+# anonymous curve library added from the similar-traces page
+data/user-library.json
+
 # python leftovers (not used by this app)
 __pycache__/
 .venv/
